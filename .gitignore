@@ -1,0 +1,7 @@
+# n8n workflow gitignore
+node_modules
+*.log
+.DS_Store
+scrub_workflow.py
+original_workflow.json
+cleaned_workflow.json

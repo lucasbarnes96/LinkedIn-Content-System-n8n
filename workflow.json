@@ -1,0 +1,678 @@
+{
+  "name": "YouTube-To-LinkedIn-Post",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2560,
+        -1984
+      ],
+      "name": "When clicking \u2018Execute workflow\u2019"
+    },
+    {
+      "parameters": {
+        "person": "YOUR_LINKEDIN_PERSON_ID",
+        "text": "={{ $json['LinkedIn Text Post'] }}",
+        "shareMediaCategory": "IMAGE",
+        "binaryPropertyName": "=data",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [
+        -1888,
+        -1688
+      ],
+      "name": "Create a post",
+      "credentials": {
+        "linkedInOAuth2Api": {
+          "name": "linkedInOAuth2Api-Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop through input items (n8n structure)\nreturn items.map(item => {\n  try {\n    // 1. Access the nested text field from the Gemini/LLM response\n    const rawContent = item.json.content.parts[0].text;\n\n    // 2. Clean the output: Find the JSON object specifically\n    // This Regex finds the first '{' and captures everything until the last '}'\n    // It prevents errors if the AI adds text like \"Here is your JSON:\"\n    const jsonMatch = rawContent.match(/\\{[\\s\\S]*\\}/);\n\n    if (jsonMatch) {\n      // 3. Parse the stringified JSON\n      const parsedData = JSON.parse(jsonMatch[0]);\n\n      // 4. Return clean, flat data for the next node\n      return {\n        json: {\n          linkedinPost: parsedData.linkedinPost,\n          imagePrompt: parsedData.imagePrompt,\n          // Optional: Keep metadata if you need it\n          // finishReason: item.json.finishReason\n        }\n      };\n    } else {\n      throw new Error(\"No JSON object found in text\");\n    }\n\n  } catch (error) {\n    // Error handling\n    return {\n      json: {\n        error: error.message,\n        rawInput: item.json.content ? item.json.content.parts[0].text : \"Invalid Input Structure\"\n      }\n    };\n  }\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1408,
+        -1912
+      ],
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -1184,
+        -1984
+      ],
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash-image",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash-image (Nano Banana)"
+        },
+        "prompt": "=Generate an image with the following prompt:\n{{ $json.imagePrompt }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        -960,
+        -1984
+      ],
+      "name": "Generate Image",
+      "credentials": {
+        "googlePalmApi": {
+          "name": "googlePalmApi-Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -2560,
+        -1688
+      ],
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Content Status",
+              "lookupValue": "Pending"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -2336,
+        -1984
+      ],
+      "name": "Get Transcript",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "googleSheetsOAuth2Api-Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('Merge').item.json.row_number }}",
+            "Content Status": "Complete",
+            "Created At": "={{ $json.createdTime }}",
+            "LinkedIn Text Post": "={{ $('Merge').item.json.linkedinPost }}",
+            "Image Link": "={{ $json.webViewLink }}",
+            "Post Status": "Review"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "YouTube Transcript",
+              "displayName": "YouTube Transcript",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Content Status",
+              "displayName": "Content Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Created At",
+              "displayName": "Created At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "LinkedIn Text Post",
+              "displayName": "LinkedIn Text Post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Image Link",
+              "displayName": "Image Link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Post Status",
+              "displayName": "Post Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -512,
+        -1984
+      ],
+      "name": "Upload Post",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "googleSheetsOAuth2Api-Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "={{ $('Merge').item.json.row_number }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_DRIVE_FOLDER_ID",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -736,
+        -1984
+      ],
+      "name": "Save Image",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "name": "googleDriveOAuth2Api-Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Post Status",
+              "lookupValue": "Ready"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -2336,
+        -1688
+      ],
+      "name": "Get Posts",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "googleSheetsOAuth2Api-Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json['Image Link'] }}",
+          "mode": "url"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -2112,
+        -1688
+      ],
+      "name": "Download Image",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "name": "googleDriveOAuth2Api-Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('Get Posts').item.json.row_number }}",
+            "Post Status": "Complete"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "YouTube Transcript",
+              "displayName": "YouTube Transcript",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Content Status",
+              "displayName": "Content Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Created At",
+              "displayName": "Created At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "LinkedIn Text Post",
+              "displayName": "LinkedIn Text Post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Image Link",
+              "displayName": "Image Link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Post Status",
+              "displayName": "Post Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Let me clean up one thing you said there because I think it's really important for the audience. I think we\nare in this golden era right now where as intelligent as the AI is, it's far far better with a human interacting with\nit. And there's something missing. There's clearly something missing. Even though it can solve incredibly hard math and physics problems, it can it can do\nentire, you know, hourlong tasks for you and come back with near perfect answers. But there's still something missing in\nthe creativity system too. Something ain't ain't right. But that creates this golden golden moment of synergy between\nthe people and their and their AI agents. But the the second part um the\nbeautiful thing about AI is it can do 10,000 things for you concurrently. And if you can evaluate the answers and\ncherrypick the best one out of 10,000, you get just incredibly good results. So\nas as an analogy, you know, midjourney, you mentioned you're making a movie and you're trying to create the next scene and you need it to be funny. If you\nprompt a GO3 or something like that and you VO3 and you say, \"Hey, make me the\nnext scene.\" You probably won't like what you get back. If you prompt it a thousand times, you get something incredible back. And it's very easy to\nset up processes of self-evaluation, self-improvement, use another AI to evaluate the last AI and create these loops. And that's where an enormous\namount of compute is an incredible competitive advantage. But that process is working really, really well for code\ngeneration, video game generation, movie generation, uh discovering new physics, discovering new math. As long as you\nhave evals that can test the results that come back, you can make ridiculous progress ahead of the curve. Just turns\nout that AI self-improvement is one of those types of tasks. It's just software. I disagree with you\nfor the following two reasons. Um the first is I think that um what'll often\nhappen is the evals will basically just get gamed in the sense of it becomes like the goodart's law like when a\nmetric becomes a measure and so on. So for example, Grock I look I like obviously I love Elon. I'm you know like\nit's amazing that he's in the top five with models given how many other things he's doing at the same time. It's it's\nactually honestly super human, right? The how how good XAI is given, how many other things he's doing. However, like\nyou know, when you actually try to use it on a daily basis, this is not everything necessarily shows up on the\nnumbers, right? It's like it's fine. It's good, but it's really good for a Twitter search and so on, but it doesn't\nlike obviously smash relative to to Claude or what have you. They're basically comparable. And so I'd say one\nof the issues is the space is so multi-dimensional that evals are like it's like hairs on a very large head\nright so it's like a spike of functionality like this number is up and this number is up and this but the surface is so high dimensional that the\nkinds of things that you want to do with it the eval don't necessarily capture that's one point the second point is I\nthink what I would argue you're underrating is those verification steps\nthose evaluation steps are not cheap and they are not really that good for main\nthings when you do team of experts and stuff like that and you throw a lot of GPUs at it like Grock super heavy and so on and so forth like you yes you can\nflip the coin I mean again empirically if I use midjourney I have to flip the coin a thousand times before I finally\nfind the image that I actually want you get in the ballpark very quickly but then the one that you actually want is\nan enormous amount of time to to get there right and it is not obvious to me\nthat Um I may maybe that'll get improved but I definitely don't consider that to\nbe solved right now like the the verification step in the last few years. I don't consider that to have radically\nimproved because you still have to prompt the thing a lot. Another part of it that's an issue is um the way these\nwork is they don't actually give a pseudo random number seed at the beginning to get a reproducible result. So you can give the same input and get\ndifferent output every single time. What that means is you can only include it in those parts of your process that can\ntolerate that level of variance which actually does constrain what\nwhich can be a feature and not a bug in many circumstances in in just one narrow point on that that is\ntrue for us as users of the APIs but it's not true for the researchers inside open AAI meta and elsewhere they they\nget perfect reproducibility they give give it the same RAN seed they turn the temperature to zero they run the test\n5,000 times They can debug with exact fidelity. They just don't make that available to us as\noutside outside users. I know. So, so exactly that's right. But basically, forever reason right now in\nthe UX's they have not exposed t equals z and they've not exposed perfect reproducibility. I mean you can share\nchats and so on but I guess my point is um I actually there's probably some model that you can call with that to get\nreproducibility but I guess my point is when you've got stochastic output let me\ngive you an example somebody had some AI web browser type thing okay seems cool at first they're like wow it can\nautomate your posting for you and build a whole following I'm like I would not do that and the reason is\nthat first of all if it makes even one misstep that's on you, right? It's like\nyour dog biting somebody, right? You're the owner. You're responsible for this thing. Okay? It's not actually a human\nbeing. You're the human being for whom it's responsible for. Number one, so if it likes the wrong thing, it retweets the wrong thing, it posts the wrong\nthing, which could easily do. The second thing is what it what it admits often sounds like the parody version of you,\nright? People who use AI chat bots, you know, people have tried this like replicas of people, right? It's fine for\nlike voice cloning if you supervise it. It can help you scale yourself in that way at times, right? I have like an AI\nversion of the network state at the networkstate.com, but I say it's AI biology so that there's errors there. People know it's AI, right? So it's like\nan MP3 audible that updates with the text, right? So it's okay. However, that's something where you can tolerate\nsome glitches in the audio output, right? It's like it's an analog output. If it's a digital output, you can't\ntolerate often that error like on the balance that's being sent to somebody or something like that. So the AI web\nbrowsing for example, where is that helpful? It's helpful on like automated testing. It's like a better selenium, right? Internally within your company,\nyou run AI web browsing, you have to click a bunch of things like a like a monkey hitting buttons like a human. Fine, you can tolerate the scarasticity\nthere. And also it won't take down your live site. But people who are trying to say, \"Oh, my AI agent will go and make\nme a million bucks like Renaissance or whatever just get wrecked because it's not good for that kind of thing.\"\nEverybody, there's not a week that goes by when I don't get the strangest of compliments. Someone will stop me and\nsay, \"Peter, you've got such nice skin.\" Honestly, I never thought, especially at age 64, I'd be hearing anyone say that I\nhave great skin. And honestly, I can't take any credit. I use an amazing product called One Skin OS01 twice a\nday, every day. The company was built by four brilliant PhD women who have identified a 10 amino acid peptide that\neffectively reverses the age of your skin. I love it and like I say, I use it every day, twice a day. There you have\nit. That's my secret. You go to oneskin.co and write peter at checkout for a discount on the same product I\nuse. Okay, now back to the episode. I want to hit another one of your points here and then we're going to shift to uh\nto crypto, which is AI doesn't take your job, it lets you do any job. I think\nthat's a really important element here that uh needs people need to understand and start to internalize. Why don't you\ngive your favorite examples? Yeah. So, so for example, um you can get to a six\nor a seven on art, on graphic design. People who couldn't code can do prototypes of things. You can now do a\nprototype version in almost any area. So, it's amazing for founders. It's amazing for self-directed people. It's\namazing for people who have something in their mind's eye, but they just couldn't get it out, right? It's also amazing for people who have time on their hands, but\nnot money because they can prompt and prompt and prompt and prompt and get like a good image or a drawing for\nsomething if they lack the budget. But to polish it and to actually get it to like ship and production level\ncurrently, you you need somebody who's an expert in the area to actually be able to debug the symbols usually.\nAgain, unless you're smart enough that you can teach yourself with it. So realizing that it actually more, you\nknow, the the Heinline quote about uh you know, a human being should be able to like\num chop lumber. I'll get it wrong, but you know what I'm talking about, right? Yeah. Exactly. He's like he's like a human being should be able to basic\nthings you should be able. Yeah. Exactly. Go. No. No. Go ahead. I'm paraphrasing. Chop lumber, write a\nsonnet, like make wine, um sing a song, etc., etc. Specialization is for\ninsects. Right. He's basically talking about Right. So, in an interesting sense, where I think AI does take us\ntowards is a greater degree of robotic archy.\nsmaller communities can be more self-sufficient if you take that's what I mean by the internet versus China going back to that like you can have a\nthousand million person network states where you have robots it's effectively decentralizing across the board large companies don't I mean\nlarge companies used to gather all the talent and and parse them out a little bit at a time today a team of one or\nsmall group can do whatever is needed to that's right so it reverses the extreme specialization of the 20th century your\nwingspan increases right there's lots of things you can do at an okay level, right? You can learn what you can't\ndon't know and so on. And so long as you're self-critical about it, knowing that the AI can be wrong, you can be wrong and so on and so forth, right? So\nthat concept of versatility is there. With that said, for some kinds of areas that are genuinely just like data entry\nor or something like that, you know, many kinds of many kinds of midwit like jobs, right? like you know if you're\njust like a lawyer who's using templates if you're just a doctor who's reading from the book or what have you AI can do it maybe with a higher error rate\nactually in some cases with a lower error rate many cases medical diagnosis AI has got a lower error rate no the numbers are st staggeringly in\nfavor of AI alone without humans in a loop right that's right so AI in medicine is much\ncheaper orders of magnitude faster because you don't have to go to an appointment and so on it's more personal\nyou can get not just a second opinion a 20th opinion so for certain areas is it's a complete transformation and it's\na radical radical radical improvement. Medicine is one of them, law is one of them. Um because you know basically what\nyou do is you use AI, you write all the contracts and then you have the lawyers review and sign off and on the end so\nyou don't have to do the thousand an hour lawyer, right? Similarly with the doctors, you go and research everything\nwith AI. It's like an ultimate search engine and then you go and you get your prescription or whatever from the doctor after you've gone and done all your\nstuff. So they're the printout step, the final certification verification step. That's how people are using it in\npractice. But it doesn't mean that you have that MD or JD yet. That state certification is still a dangling thing.\nAnd there's going to be enormous pressure from the AMA, the ABA, and others to ban or limit the use of AI\nkind of like unions, but white collar unions. Yeah, I think you made a really important point for for the listeners\ntoo, which is that the the different areas of endeavor are moving at very very different rates. Uh and the two big\nfactors are can it evaluate itself and the other one is is it is it regulated in some way but you know medicine is\nmoving a billion miles an hour. Law is able to move a billion miles an hour but you know you have regulatory issues. Um\nphysics and math and coding are moving a billion miles an hour with no no barriers. There's no regulatory\nbarriers. Are they what do you So give me like okay so let me a concrete example would be the protein folding\nright like what Deise won the Nobel Prize for right that's genuinely\nsomething where there was a huge you know that was a it was a wellposed problem of given the\nprimary sequence infer the 3D structure where the 3D structure comes from PDB\nand you can verify it with X-ray crystalallography um and uh so so there's a very known\nobjective function where you can map this far, right? But\nwhat other you know I don't know I Yeah. So the the four things I named were were um medicine biology.\nYeah. Go ahead. Physics uh math and coding. And of those four, the one where Peter's the world\nexpert is the one on biology and chemistry. And you're right within within biology, chemistry, and medicine, there are areas that are very very\ndiscreet and evaluatable and others that aren't. So that one's the one of the four that I mentioned that's pretty\nmurky like but you know within that there's probably 20 different dimensions. So the you know specifically\nlike if you're reading scans like you know here the the fidelity of a scan can\nbe many many terabytes of data no radiologist can read it but when you find something in the scan it's crystal\nclear that you found it. So that one self-evaluates very very easily. It's like yeah this if I had the time to look\nat it I would have found that but I didn't have the time to look at it and this so so those are the areas that'll move very very quickly and then there\nare these other murkier areas like can you build a full cell simulator well you know that's more of a synthetic data and\nsimulation problem the AI will keep up with it if you can build the evaluator or the simulator but can you actually\nbuild that okay so here's here's my view the areas I know fairly well are bioen coding and\nI have I mean like I know some physics and math but I haven't kept up with the frontier of it here's what I'd say about bio um AI\nis amazing for like obviously the protein folding problem but another thing biomedical text mining all the\npapers that were locked in archives and so and so forth being able to put together the information about p-53 in\nthis paper and that paper and all the contradictions and all the references and so and so forth it's amazing for doing natural language search synthesis\nsummary of large corpora I feel it's definitely going to accelerate biomedical innovation in that sense and obviously as you just talked about for\ndiagnosis of both text and for images and mixed kinds of things and so on so it's smash smashingly useful in biio\nmedicine. But I'd say that a lot of that is not the creation really of net new information so much as the synthesis and\nbridging of existing things. Like you've got a bunch of existing nodes and then AI is really amazing at interpolating. And sometimes that is in a sense net new\nbecause that synthesis is itself useful, but that's distinct from points outside the envelope that are like new physics\nor new math or new biology. And so let me use this as a jumping point. Did you see Demis' prediction of curing all",
+              "displayName": "CACHED_TRANSCRIPT_REMOVED",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -1664,
+        -1688
+      ],
+      "name": "Update Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "googleSheetsOAuth2Api-Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash-lite",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash-lite"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=YouTube Transcript:  {{ $json[\"YouTube Transcript\"] }}"
+            }
+          ]
+        },
+        "options": {
+          "systemMessage": "=System Prompt: The Insight Miner (Extraction Engine)\n\nYou are the Insight Miner. Your sole purpose is to strip away the fluff from a video transcript and mine it for raw facts, logical pivots, and concrete data ore.\n\nYOUR ROLE:\n\nDo NOT try to be \"creative,\" \"viral,\" or \"clever.\"\n\nDo NOT worry about word count limits for the content fields.\n\nFOCUS entirely on extracting the most specific arguments, statistics, and logical causalities from the text.\n\nCRITICAL CONSTRAINT: DATA FIDELITY\n\nThe downstream model (The Architect) needs high-quality fuel. You must extract:\n\nSpecific Numbers: Percentages, dollar amounts, timeframes (e.g., \"23% drop,\" \"by 2026\").\n\nSpecific Nouns: Tool names, company names, historical events, proper nouns.\n\nDirect Logic: If the speaker says X causes Y, capture that causality clearly.\n\nOUTPUT STRUCTURE (The 5-Step Logic)\n\nMap the transcript into exactly 5 logical phases.\n\n1. THE HOOK CONCEPT\n\nGoal: Identify the most provocative claim or \"inciting incident\" in the transcript.\n\nExtraction: Find the statement that challenges the status quo or creates immediate tension.\n\nOutput Field: raw_hook_concept\n\n2. THE PROBLEM (Panel 1-2)\n\nGoal: What is the systemic failure?\n\nExtraction: Look for \"bottlenecks,\" \"broken models,\" or \"old ways\" that are failing.\n\nOutput Fields:\n\nvisual_subject: The physical object involved (e.g., \"A stack of paper resumes,\" \"A rusting factory\").\n\nraw_data_and_facts: 1-2 sentences containing specific evidence, stats, or symptoms of the problem.\n\n3. THE SHIFT (Panel 3)\n\nGoal: What is the turning point?\n\nExtraction: Look for the new technology, economic shift, or \"aha\" moment that disrupts the Problem.\n\nOutput Fields:\n\nvisual_subject: The agent of change (e.g., \"AI software interface,\" \"Smartphone\").\n\nraw_data_and_facts: 1-2 sentences explaining why the old way broke or how the landscape changed.\n\n4. THE SOLUTION (Panel 4)\n\nGoal: What is the specific fix?\n\nExtraction: Look for actionable steps. Avoid vague advice.\n\nOutput Fields:\n\nvisual_subject: The tool or action (e.g., \"Laptop screen showing code,\" \"Swiss Army Knife\").\n\nraw_data_and_facts: 1-2 sentences detailing the specific action (e.g., \"Email 5 founders this weekend\").\n\n5. THE CLOSE (Panel 5)\n\nGoal: What is the future implication?\n\nExtraction: Look for the definitive conclusion, the ultimate benefit, or the final reality check. Do not look for a binary \"choice.\"\n\nOutput Fields:\n\nvisual_subject: A single symbol representing the future state (e.g., \"A horizon,\" \"A bridge,\" \"A key\"). Avoid split \"success/failure\" imagery.\n\nraw_data_and_facts: 1-2 sentences describing the final reality or implication.\n\nOUTPUT JSON SPECIFICATION\n\nReturn valid JSON with escaped newlines.\n\n{\n  \"raw_hook_concept\": \"The raw provocative statement from the text.\",\n  \"panels\": [\n    {\n      \"step_label\": \"THE PROBLEM\",\n      \"visual_subject\": \"A concise noun describing the object (e.g., 'A stack of paper resumes').\",\n      \"raw_data_and_facts\": \"The specific evidence found in the text (e.g., 'ATS systems reject 75% of applicants automatically according to 2024 data.').\"\n    },\n    {\n      \"step_label\": \"THE PAIN\",\n      \"visual_subject\": \"...\",\n      \"raw_data_and_facts\": \"...\"\n    },\n    {\n      \"step_label\": \"THE SHIFT\",\n      \"visual_subject\": \"...\",\n      \"raw_data_and_facts\": \"...\"\n    },\n    {\n      \"step_label\": \"THE SOLUTION\",\n      \"visual_subject\": \"...\",\n      \"raw_data_and_facts\": \"...\"\n    },\n    {\n      \"step_label\": \"THE CLOSE\",\n      \"visual_subject\": \"...\",\n      \"raw_data_and_facts\": \"...\"\n    }\n  ]\n}\n\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        -2112,
+        -1912
+      ],
+      "name": "Transcript Miner",
+      "credentials": {
+        "googlePalmApi": {
+          "name": "googlePalmApi-Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Content Summary: {{ $json.content.parts[0].text }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "systemMessage": "=CONTENT ENGINE: The Narrative Architect (Creative Director)\n\nINPUT SPECIFICATION\n\nA JSON object containing \"Raw Materials\" from the Insight Miner:\n\nraw_hook_concept (string): The rough idea for the opening.\n\npanels (array): 5 objects, each containing:\n\nstep_label (string)\n\nvisual_subject (string): A simple noun/object.\n\nraw_data_and_facts (string): Detailed facts and logic.\n\nOUTPUT SPECIFICATION\n\nReturn valid JSON with escaped newlines:\n\n{\n  \"linkedinPost\": \"string\",\n  \"imagePrompt\": \"string\"\n}\n\n\n\nPART 0: NARRATIVE STRATEGY (Internal Monologue)\n\nCRITICAL STEP: Before generating any output, you must identify a Single Narrative Thread.\n\nThe Trap: The input data (mining output) might cover multiple topics (e.g., Goodhart's Law, Computing Costs, and Renaissance Men).\n\nThe Fix: You must Pick ONE dominant angle and ruthlessly discard unrelated facts.\n\nThe Goal: Ensure the \"Solution\" (Part 4) directly answers the \"Problem\" (Part 2). If the problem is \"Bad Metrics,\" the solution MUST be \"Human Judgment,\" not \"cheaper compute.\"\n\nLogic Check: Ask yourself: \"Does the final sentence of the post solve the first sentence?\" If not, realign the narrative.\n\nPART 1: LINKEDIN POST GENERATION\n\nYOUR JOB: You are the Narrative Architect. Filter the raw data through your chosen Narrative Thread.\n\nVoice & Tone (The Smart Rant)\n\nPunchy & Rhythmic: Use short, declarative sentences to drive points home (\"AI is here. It needs humans.\"). Mix these with slightly longer, flowing sentences to explain the context. The rhythm should feel like a heartbeat: Thump-thump. Flow.\n\nSpoken Cadence: Write like a passionate domain expert giving a high-speed monologue. It should feel personal, urgent, and spoken\u2014not written like a textbook.\n\nMetaphorical Anchors: Use strong metaphors to bridge concepts, but state them as absolute facts (\"AI is electricity, but we lack the wiring\").\n\nDefinitive: No hedging. No softening. \"The system is broken,\" not \"The system has issues.\"\n\nFORBIDDEN ELEMENTS (Hard Constraints)\n\nDo NOT include:\n\nCorporate Buzzwords: \"navigate,\" \"thrive,\" \"future-proof,\" \"synergy,\" \"unleash,\" \"landscape,\" \"crucial.\"\n\nFiller Phrases: \"In today's fast-paced world,\" \"It's important to note,\" \"Let's dive in.\"\n\nEngagement Bait: \"What do you think?\", \"Tag someone who...\"\n\nHashtags: ZERO hashtags.\n\nFormatting: No bold text (text). No bullet points.\n\nPunctuation: No em-dashes (\u2014). Use periods.\n\nStructure (4 Parts)\n\nThe Hook (The Inciting Incident): Punchy. Controversial. Use a strong metaphor if possible. 15-25 words.\n\nThe Reality (The Blockage): Synthesize Panels 1-2. Explain why the current method fails. Elaborate on the \"Why.\"\n\nThe Fix (The Bridge): Synthesize Panels 3-4. Explain the solution found in the input data. How does the new mechanism or shift solve the problem? Be descriptive.\n\nThe Close (The Conclusion): Synthesize Panel 5. End with a definitive statement on the future implications.\n\nPART 2: IMAGE PROMPT GENERATION (The Visual Strategy)\n\nYOUR JOB: Synthesize the text and visuals. CRITICAL: The visual metaphors MUST match the text metaphors.\n\nHeadlines: Write a punchy 2-4 word headline for each panel based on your chosen Narrative Thread.\n\nCaptions: Condense the logic into a clean, 15-word max \"Sticky Note\" caption.\n\nVisuals: Describe a full-width, edge-to-edge watercolor illustration. Ensure the visual subject mirrors the specific metaphors used in the text (e.g., if text mentions \"wiring,\" show wiring).\n\nVisual Style Requirements\n\nLayout: \"Stacked Poster\" composition. No scroll graphics. No borders. Each section is a horizontal band that touches the left and right edges.\n\nBackground: \"Clean off-white/beige grainy paper texture.\"\n\nColors: \"Sage Green, Terracotta, Slate Blue, and Charcoal Grey.\"\n\nTypography:\n\nTitles: \"Libre Baskerville (Bold). High-contrast, 'Old Style' serif.\"\n\nBody: \"Inter (Regular). Clean, neutral, functional sans-serif.\"\n\nConstraint: ABSOLUTELY NO HANDWRITING.\n\nPrompt Construction Template\n\n\"A vertical editorial infographic on off-white grainy paper texture (9:16), 2K resolution.\nLAYOUT:\nA unified vertical composition divided into 5 stacked, full-width tiers. Visuals stretch from left margin to right margin. No borders.\nCOLOR PALETTE:\nSage Green, Terracotta, Slate Blue, and Charcoal Grey.\n\nSECTION 1 (MAIN TITLE):\nTitle: [Create a Headline based on 'raw_hook_concept'] rendered in huge Libre Baskerville (Bold) typography spanning the top width.\nVisual: [Describe 'panels[0].visual_subject' ADAPTED to match the text metaphor] drawn as a wide, panoramic watercolor scene below the title.\n\nSECTION 2:\nHeader: [Create 2-4 word Headline for Panel 1] (Rendered in Inter Semi-Bold).\nVisual: A wide, full-width watercolor vignette of [Describe 'panels[1].visual_subject'].\nCaption: '[Write a <15 word caption summarizing panels[1].raw_data_and_facts]' (Rendered in Inter Regular).\n\nSECTION 3:\nHeader: [Create 2-4 word Headline for Panel 2] (Inter Semi-Bold).\nVisual: A wide, full-width watercolor vignette of [Describe 'panels[2].visual_subject'].\nCaption: '[Write a <15 word caption summarizing panels[2].raw_data_and_facts]' (Rendered in Inter Regular).\n\nSECTION 4:\nHeader: [Create 2-4 word Headline for Panel 3] (Inter Semi-Bold).\nVisual: A wide, full-width watercolor vignette of [Describe 'panels[3].visual_subject'].\nCaption: '[Write a <15 word caption summarizing panels[3].raw_data_and_facts]' (Rendered in Inter Regular).\n\nSECTION 5 (FOOTER):\nHeader: [Create 2-4 word Headline for Panel 4] (Inter Semi-Bold).\nVisual: A wide, full-width watercolor vignette of [Describe 'panels[4].visual_subject' as a unified scene (avoid split/binary layouts)].\nCaption: '[Write a <15 word caption summarizing panels[4].raw_data_and_facts]' (Rendered in Inter Regular).\n\nNEGATIVE PROMPT:\nHandwriting, script fonts, marker font, comic sans, messy sketch, ripped paper edges, torn paper, grunge border, grid layout, column layout, trapped white space, photorealistic 3D, glossy finish, scroll graphic, curling paper.\""
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        -1760,
+        -1912
+      ],
+      "name": "Content Engine",
+      "credentials": {
+        "googlePalmApi": {
+          "name": "googlePalmApi-Account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking \u2018Execute workflow\u2019": {
+      "main": [
+        [
+          {
+            "node": "Get Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Create a post": {
+      "main": [
+        [
+          {
+            "node": "Update Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Generate Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Image": {
+      "main": [
+        [
+          {
+            "node": "Save Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Transcript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Transcript Miner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Image": {
+      "main": [
+        [
+          {
+            "node": "Upload Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Posts": {
+      "main": [
+        [
+          {
+            "node": "Download Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Image": {
+      "main": [
+        [
+          {
+            "node": "Create a post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcript Miner": {
+      "main": [
+        [
+          {
+            "node": "Content Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Engine": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
